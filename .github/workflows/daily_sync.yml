@@ -13,12 +13,12 @@ jobs:
       - name: Lấy mã nguồn
         uses: actions/checkout@v3
 
-      - name: Cài đặt Python
+      - name: Thiết lập Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Cài đặt thư viện và Playwright Chromium
+      - name: Cài đặt Playwright và Chromium
         run: |
           pip install playwright gspread google-auth
           playwright install chromium --with-deps

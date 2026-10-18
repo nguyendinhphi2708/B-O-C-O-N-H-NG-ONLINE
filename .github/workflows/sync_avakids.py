@@ -44,70 +44,74 @@ def main():
     seen = set()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-    print("[*] Khởi chạy Playwright Chromium để cào trực tiếp giao diện...")
+    print("[*] Khởi chạy Playwright Chromium chế độ tối ưu tải trang...")
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
             args=[
                 "--disable-blink-features=AutomationControlled",
                 "--no-sandbox",
-                "--disable-setuid-sandbox"
+                "--disable-setuid-sandbox",
+                "--disable-dev-shm-usage"
             ]
         )
         context = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-            viewport={"width": 1440, "height": 900}
+            viewport={"width": 1920, "height": 1080}
         )
         page = context.new_page()
 
         for cate in CATE_LIST:
-            print(f"[*] Đang tải trang: {cate['name']} ({cate['url']})...")
+            print(f"\n[*] Đang tải trang: {cate['name']} ({cate['url']})...")
             try:
-                page.goto(cate["url"], wait_until="networkidle", timeout=60000)
-                time.sleep(3)
+                # Dùng domcontentloaded để không bị kẹt vì các script phân tích mạng
+                page.goto(cate["url"], wait_until="domcontentloaded", timeout=45000)
+                time.sleep(4)
 
-                # Bấm xem thêm / cuộn trang để nạp danh sách sản phẩm
-                print(f"[*] Đang cuộn trang tải toàn bộ sản phẩm {cate['name']}...")
-                for scroll_idx in range(12):
-                    page.mouse.wheel(0, 3000)
-                    time.sleep(1.5)
-                    # Thử click nút "Xem thêm" nếu xuất hiện
+                # Cuộn trang từng đợt để kích hoạt render Lazyload
+                print(f"[*] Cuộn trang lấy sản phẩm...")
+                for i in range(8):
+                    page.evaluate("window.scrollBy(0, 1200)")
+                    time.sleep(1.2)
                     try:
-                        view_more = page.locator(".view-more, .btn-viewmore, a:has-text('Xem thêm')").first
-                        if view_more.is_visible():
-                            view_more.click(timeout=1000)
-                            time.sleep(1.5)
+                        view_more = page.locator("a.view-more, .btn-viewmore, .readmore, a:has-text('Xem thêm')").first
+                        if view_more.is_visible(timeout=500):
+                            view_more.click()
+                            time.sleep(1.2)
                     except Exception:
                         pass
 
-                # Trích xuất toàn bộ sản phẩm trực tiếp từ DOM
+                # Trích xuất dữ liệu DOM với tập selector mở rộng
                 products_data = page.evaluate("""
                 () => {
                     const items = [];
-                    // Danh sách selector các thẻ sản phẩm phổ biến trên AVAKids
-                    const elements = document.querySelectorAll('li.item, .product-item, .item-product, ul.listproduct > li');
-                    elements.forEach(el => {
+                    // Quét tất cả các dạng khối sản phẩm có thể có trên AVAKids
+                    const cards = document.querySelectorAll(
+                        'ul.listproduct > li, .listproduct li, .product-item, .item-product, div.item, li.item'
+                    );
+
+                    cards.forEach(el => {
                         try {
-                            const nameEl = el.querySelector('h3, .item-name, .name, [title]');
-                            const name = nameEl ? (nameEl.innerText || nameEl.getAttribute('title') || '').trim() : '';
-                            if (!name) return;
+                            const nameEl = el.querySelector('h3, .name, .product-name, [title]');
+                            let name = nameEl ? (nameEl.innerText || nameEl.getAttribute('title') || '').trim() : '';
+                            if (!name || name.length < 5) return;
 
                             const linkEl = el.querySelector('a');
                             const href = linkEl ? linkEl.getAttribute('href') : '';
 
-                            const priceEl = el.querySelector('.price, strong.price, .box-price strong');
+                            const priceEl = el.querySelector('.price, strong.price, .box-price strong, .price-current');
                             const priceText = priceEl ? priceEl.innerText : '0';
 
-                            const oldPriceEl = el.querySelector('.old-price, .box-price cite, strike');
+                            const oldPriceEl = el.querySelector('.old-price, strike, .box-price cite, .price-old');
                             const oldPriceText = oldPriceEl ? oldPriceEl.innerText : '0';
 
                             const imgEl = el.querySelector('img');
                             let imgUrl = '';
                             if (imgEl) {
-                                imgUrl = imgEl.getAttribute('data-src') || imgEl.getAttribute('src') || '';
+                                imgUrl = imgEl.getAttribute('data-src') || imgEl.getAttribute('data-original') || imgEl.getAttribute('src') || '';
                             }
 
-                            const promoEl = el.querySelector('.item-gift, .item-promos, .text-promotion');
+                            const promoEl = el.querySelector('.item-gift, .item-promos, .text-promotion, .promo-text');
                             const promoText = promoEl ? promoEl.innerText.trim() : '';
 
                             const code = el.getAttribute('data-id') || el.getAttribute('data-product-code') || href;
@@ -127,7 +131,7 @@ def main():
                 }
                 """)
 
-                print(f"[+] Tìm thấy {len(products_data)} sản phẩm trên giao diện cho ngành {cate['name']}")
+                print(f"[+] Tìm thấy {len(products_data)} sản phẩm trên giao diện cho {cate['name']}")
 
                 for item in products_data:
                     p_name = item.get('name') or ""
@@ -150,9 +154,12 @@ def main():
                     prod_url = p_href if p_href.startswith("http") else f"https://www.avakids.com{p_href}"
                     age = extract_target_age(p_name)
 
-                    # Phân tích thương hiệu từ tên
                     brand_guess = ""
-                    common_brands = ['Pediasure', 'Nan', 'Similac', 'Enfagrow', 'Aptamil', 'Friso', 'Meiji', 'Morinaga', 'Glico', 'ColosBaby', 'Dielac', 'Optimum', 'Vinamilk', 'TH true MILK', 'Nestlé', 'Nutifood', 'Abbott']
+                    common_brands = [
+                        'Pediasure', 'Nan', 'Similac', 'Enfagrow', 'Aptamil', 'Friso', 'Meiji',
+                        'Morinaga', 'Glico', 'ColosBaby', 'Dielac', 'Optimum', 'Vinamilk',
+                        'TH true MILK', 'Nestlé', 'Nutifood', 'Abbott', 'HiPP', 'Blackmores'
+                    ]
                     for b in common_brands:
                         if b.lower() in p_name.lower():
                             brand_guess = b
@@ -165,12 +172,12 @@ def main():
                     ])
 
             except Exception as e:
-                print(f"[-] Lỗi khi xử lý ngành {cate['name']}: {e}")
+                print(f"[-] Lỗi khi xử lý {cate['name']}: {e}")
 
         browser.close()
 
     if all_rows:
-        print(f"[*] Đang ghi {len(all_rows)} sản phẩm vào Google Sheets...")
+        print(f"\n[*] Đang kết nối Google Sheets và ghi {len(all_rows)} sản phẩm...")
         service_account_info = json.loads(os.environ["GCP_SA_KEY"])
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         creds = Credentials.from_service_account_info(service_account_info, scopes=scopes)
@@ -186,7 +193,7 @@ def main():
         sheet.update(range_name='A1', values=[headers] + all_rows)
         print(f"🎉 Cập nhật thành công {len(all_rows)} sản phẩm lên Google Sheet!")
     else:
-        print("[!] Vẫn chưa lấy được dữ liệu từ giao diện.")
+        print("\n[!] Không trích xuất được sản phẩm nào.")
 
 if __name__ == "__main__":
     main()

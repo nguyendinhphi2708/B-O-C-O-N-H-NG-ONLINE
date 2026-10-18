@@ -1,0 +1,29 @@
+name: Tự động cập nhật giá sữa AVAKids
+
+on:
+  schedule:
+    # Chạy tự động lúc 05:00 sáng hàng ngày theo giờ Việt Nam (22:00 UTC)
+    - cron: '0 22 * * *'
+  workflow_dispatch: # Tạo nút bấm "Run workflow" chạy bằng tay
+
+jobs:
+  sync-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Lấy mã nguồn từ GitHub
+        uses: actions/checkout@v3
+
+      - name: Cài đặt Python 3.10
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Cài đặt các thư viện cần thiết
+        run: |
+          pip install requests gspread google-auth
+
+      - name: Chạy script cập nhật Sheets
+        env:
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
+        run: |
+          python sync_avakids.py

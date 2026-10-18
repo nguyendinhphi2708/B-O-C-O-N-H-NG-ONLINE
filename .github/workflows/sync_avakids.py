@@ -44,6 +44,7 @@ def main():
     seen = set()
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    print("[*] Khởi chạy trình duyệt Playwright Chromium để vượt Cloudflare...")
     with sync_playwright() as p:
         browser = p.chromium.launch(
             headless=True,
@@ -58,15 +59,15 @@ def main():
         for cate in CATE_LIST:
             print(f"[*] Đang tải trang ngành: {cate['name']}...")
             try:
-                page.goto(cate["url"], wait_until="networkidle", timeout=45000)
+                page.goto(cate["url"], wait_until="networkidle", timeout=60000)
                 time.sleep(3)
 
-                # Tự động cuộn trang để kích hoạt tải dữ liệu
-                for _ in range(4):
-                    page.mouse.wheel(0, 1500)
+                # Cuộn trang nhẹ để kích hoạt session hợp lệ
+                for _ in range(3):
+                    page.mouse.wheel(0, 1000)
                     time.sleep(1)
 
-                # Gọi trực tiếp API nội bộ thông qua ngữ cảnh trình duyệt đã vượt tường lửa
+                # Gọi API trực tiếp từ context trình duyệt đã vượt tường lửa
                 api_script = f"""
                 async () => {{
                     try {{
@@ -96,7 +97,7 @@ def main():
                 }}
                 """
                 products = page.evaluate(api_script)
-                print(f"[+] Lấy thành công {len(products)} sản phẩm cho {cate['name']}")
+                print(f"[+] Lấy thành công {len(products)} sản phẩm cho ngành {cate['name']}")
 
                 for item in products:
                     p_code = item.get('productCode') or item.get('productPEId') or ""
